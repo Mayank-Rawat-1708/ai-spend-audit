@@ -8,6 +8,7 @@ import RecommendationCard from "@/components/RecommendationCard";
 import LeadCaptureForm from "@/components/LeadCaptureForm";
 import CredexCTA from "@/components/CredexCTA";
 import ShareBar from "@/components/ShareBar";
+import BenchmarkBar from "@/components/BenchmarkBar";
 
 function LoadingScreen() {
   return (
@@ -43,47 +44,35 @@ export default function ResultPage({ params }: { params: Promise<{ id: string }>
     let cancelled = false;
 
     const loadResult = async () => {
-      // 1. Try localStorage (just submitted from same browser)
+      // 1. Try localStorage
       try {
         const cached = localStorage.getItem(`audit_${id}`);
         if (cached) {
           const parsed = JSON.parse(cached) as AuditResult;
-          if (!cancelled) {
-            setResult(parsed);
-            setLoading(false);
-          }
+          if (!cancelled) { setResult(parsed); setLoading(false); }
           return;
         }
       } catch { /* fall through */ }
 
-      // 2. Try URL-encoded data (fallback without Supabase)
+      // 2. Try URL-encoded fallback
       const urlParams = new URLSearchParams(window.location.search);
       const encoded = urlParams.get("d");
       if (encoded) {
         try {
           const decoded = JSON.parse(atob(encoded)) as AuditResult;
-          if (!cancelled) {
-            setResult(decoded);
-            setLoading(false);
-          }
+          if (!cancelled) { setResult(decoded); setLoading(false); }
           return;
         } catch { /* fall through */ }
       }
 
-      // 3. Fetch from API (Supabase-backed)
+      // 3. Fetch from API
       try {
         const res = await fetch(`/api/result/${id}`);
         if (!res.ok) throw new Error("not found");
         const data = await res.json() as AuditResult;
-        if (!cancelled) {
-          setResult(data);
-          setLoading(false);
-        }
+        if (!cancelled) { setResult(data); setLoading(false); }
       } catch {
-        if (!cancelled) {
-          setResult(null);
-          setLoading(false);
-        }
+        if (!cancelled) { setResult(null); setLoading(false); }
       }
     };
 
@@ -137,38 +126,25 @@ export default function ResultPage({ params }: { params: Promise<{ id: string }>
           </div>
         </section>
 
-        {/* Cost per dev */}
-        {result.input.teamSize > 1 && (
-          <div className="anim-fade-up-3" style={{ marginTop: 20, padding: "16px 20px", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 4, display: "flex", gap: 32, flexWrap: "wrap", alignItems: "center" }}>
-            <div>
-              <div className="label" style={{ marginBottom: 4 }}>Cost per developer / month</div>
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: 22, fontWeight: 700 }}>
-                ${(result.totalCurrentSpend / result.input.teamSize).toFixed(0)}
-                <span style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 400, marginLeft: 8 }}>current</span>
-              </div>
-            </div>
-            {result.totalMonthlySavings > 0 && (
-              <>
-                <div style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 18 }}>→</div>
-                <div>
-                  <div className="label" style={{ marginBottom: 4 }}>After optimization</div>
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 22, fontWeight: 700, color: "var(--green)" }}>
-                    ${(result.totalProjectedSpend / result.input.teamSize).toFixed(0)}
-                    <span style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 400, marginLeft: 8 }}>projected</span>
-                  </div>
-                </div>
-              </>
-            )}
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-dim)", marginLeft: "auto" }}>
-              Benchmark: Series A avg ~$120/dev/mo
-            </div>
-          </div>
-        )}
+        {/* Benchmark bar — shown for all team sizes */}
+        <div className="anim-fade-up-3">
+          <BenchmarkBar
+            totalCurrentSpend={result.totalCurrentSpend}
+            totalProjectedSpend={result.totalProjectedSpend}
+            teamSize={result.input.teamSize}
+            useCase={result.input.useCase}
+            hasSavings={!result.isOptimal}
+          />
+        </div>
 
         <hr className="divider" />
 
         <div className="anim-fade-up-3">
-          <LeadCaptureForm auditId={result.id} monthlySavings={result.totalMonthlySavings} isOptimal={result.isOptimal} />
+          <LeadCaptureForm
+            auditId={result.id}
+            monthlySavings={result.totalMonthlySavings}
+            isOptimal={result.isOptimal}
+          />
         </div>
 
         <div style={{ height: 24 }} />

@@ -1,7 +1,10 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap');
 
+/* stylelint-disable-next-line at-rule-no-unknown */
 @tailwind base;
+/* stylelint-disable-next-line at-rule-no-unknown */
 @tailwind components;
+/* stylelint-disable-next-line at-rule-no-unknown */
 @tailwind utilities;
 
 :root {
@@ -185,7 +188,6 @@ select option { background: var(--bg-card); color: var(--text); }
 
   /* Card padding */
   .card-section { padding: 16px !important; }
-  .card { }
 
   /* Lead form grid — stack */
   .lead-form-grid { grid-template-columns: 1fr !important; }

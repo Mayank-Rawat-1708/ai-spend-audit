@@ -23,15 +23,28 @@ export default function HomePage() {
   const [error, setError] = useState("");
   const [mounted, setMounted] = useState(false);
 
+  // Local string state for team size so user can freely type/backspace
+  const [teamSizeStr, setTeamSizeStr] = useState("1");
+
   useEffect(() => {
-    Promise.resolve().then(() => setMounted(true));
-  }, []);
+    Promise.resolve().then(() => {
+      setMounted(true);
+      setTeamSizeStr(String(teamSize));
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const usedIds = new Set(tools.map(t => t.toolId));
 
   const handleAddTool = () => {
     const available = ALL_TOOLS.find(t => !usedIds.has(t));
-    if (available) addTool({ toolId: available, plan: TOOL_PLANS[available]?.[1] ?? TOOL_PLANS[available]?.[0] ?? "Pro", monthlySpend: 20, seats: 1 });
+    if (available) {
+      addTool({
+        toolId: available,
+        plan: TOOL_PLANS[available]?.[1] ?? TOOL_PLANS[available]?.[0] ?? "Pro",
+        monthlySpend: 20,
+        seats: 1,
+      });
+    }
   };
 
   const handleSubmit = async () => {
@@ -82,30 +95,54 @@ export default function HomePage() {
         {/* Form */}
         <div className="anim-fade-up-1" style={{ maxWidth: 760, margin: "0 auto" }}>
 
-          {/* Step 1 */}
+          {/* Step 1 — Team context */}
           <div className="card-section">
             <div className="label" style={{ marginBottom: 18 }}>01 / Team Context</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               <div>
                 <label className="field-label">Team size</label>
-                <input type="number" min={1} max={10000} value={mounted ? teamSize : 1}
-                  onChange={e => setTeamSize(Math.max(1, parseInt(e.target.value) || 1))} placeholder="e.g. 5" />
+                <input
+                  type="number"
+                  min={1}
+                  max={10000}
+                  value={teamSizeStr}
+                  placeholder="e.g. 5"
+                  onChange={e => {
+                    setTeamSizeStr(e.target.value);
+                    const n = parseInt(e.target.value);
+                    if (!isNaN(n) && n >= 1) setTeamSize(n);
+                  }}
+                  onBlur={() => {
+                    const n = parseInt(teamSizeStr);
+                    const safe = isNaN(n) || n < 1 ? 1 : n;
+                    setTeamSizeStr(String(safe));
+                    setTeamSize(safe);
+                  }}
+                  onFocus={e => e.target.select()}
+                />
               </div>
               <div>
                 <label className="field-label">Primary use case</label>
-                <select value={mounted ? useCase : "mixed"} onChange={e => setUseCase(e.target.value as UseCase)}>
-                  {USE_CASES.map(uc => <option key={uc.value} value={uc.value}>{uc.label}</option>)}
+                <select
+                  value={mounted ? useCase : "mixed"}
+                  onChange={e => setUseCase(e.target.value as UseCase)}
+                >
+                  {USE_CASES.map(uc => (
+                    <option key={uc.value} value={uc.value}>{uc.label}</option>
+                  ))}
                 </select>
               </div>
             </div>
           </div>
 
-          {/* Step 2 */}
+          {/* Step 2 — Tools */}
           <div className="card-section">
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
               <span className="label">02 / Your AI Tools</span>
               {mounted && tools.length > 0 && (
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--green)" }}>${totalSpend.toLocaleString()}/mo total</span>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--green)" }}>
+                  ${totalSpend.toLocaleString()}/mo total
+                </span>
               )}
             </div>
 
@@ -117,35 +154,64 @@ export default function HomePage() {
 
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {mounted && tools.map((tool, i) => {
-                const rowUsedIds = new Set(tools.map((t, j) => j !== i ? t.toolId : null).filter((x): x is ToolId => x !== null));
+                const rowUsedIds = new Set(
+                  tools.map((t, j) => j !== i ? t.toolId : null).filter((x): x is ToolId => x !== null)
+                );
                 return (
-                  <ToolRow key={`${tool.toolId}-${i}`} toolId={tool.toolId} plan={tool.plan}
-                    monthlySpend={tool.monthlySpend} seats={tool.seats} usedIds={rowUsedIds}
+                  <ToolRow
+                    key={`${tool.toolId}-${i}`}
+                    toolId={tool.toolId}
+                    plan={tool.plan}
+                    monthlySpend={tool.monthlySpend}
+                    seats={tool.seats}
+                    usedIds={rowUsedIds}
                     onUpdate={(field, value) => updateTool(i, { [field]: value })}
-                    onRemove={() => removeTool(i)} />
+                    onRemove={() => removeTool(i)}
+                  />
                 );
               })}
             </div>
 
-            <button onClick={handleAddTool} disabled={!mounted || tools.length >= ALL_TOOLS.length}
-              style={{ marginTop: 12, background: "none", border: "1px dashed var(--border-bright)", borderRadius: 4,
-                color: "var(--text-muted)", cursor: tools.length >= ALL_TOOLS.length ? "not-allowed" : "pointer",
-                padding: "11px 0", width: "100%", fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: "0.1em",
-                textTransform: "uppercase", transition: "all 0.15s", opacity: tools.length >= ALL_TOOLS.length ? 0.4 : 1 }}
-              onMouseEnter={e => { if (tools.length < ALL_TOOLS.length) { e.currentTarget.style.borderColor = "var(--green-mid)"; e.currentTarget.style.color = "var(--green)"; }}}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border-bright)"; e.currentTarget.style.color = "var(--text-muted)"; }}>
+            <button
+              onClick={handleAddTool}
+              disabled={!mounted || tools.length >= ALL_TOOLS.length}
+              style={{
+                marginTop: 12, background: "none", border: "1px dashed var(--border-bright)",
+                borderRadius: 4, color: "var(--text-muted)",
+                cursor: tools.length >= ALL_TOOLS.length ? "not-allowed" : "pointer",
+                padding: "11px 0", width: "100%", fontFamily: "var(--font-mono)", fontSize: 11,
+                letterSpacing: "0.1em", textTransform: "uppercase", transition: "all 0.15s",
+                opacity: tools.length >= ALL_TOOLS.length ? 0.4 : 1,
+              }}
+              onMouseEnter={e => {
+                if (tools.length < ALL_TOOLS.length) {
+                  e.currentTarget.style.borderColor = "var(--green-mid)";
+                  e.currentTarget.style.color = "var(--green)";
+                }
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.borderColor = "var(--border-bright)";
+                e.currentTarget.style.color = "var(--text-muted)";
+              }}
+            >
               + Add Tool
             </button>
           </div>
 
+          {/* Error */}
           {error && (
             <div style={{ padding: "11px 14px", background: "var(--red-dim)", border: "1px solid var(--red-border)", borderRadius: 4, color: "var(--red)", fontFamily: "var(--font-mono)", fontSize: 12, marginBottom: 12 }}>
               ⚠ {error}
             </div>
           )}
 
-          <button onClick={handleSubmit} disabled={loading || !mounted} className="btn btn-primary btn-full"
-            style={{ fontSize: 13, letterSpacing: "0.1em", padding: "17px 24px" }}>
+          {/* Submit */}
+          <button
+            onClick={handleSubmit}
+            disabled={loading || !mounted}
+            className="btn btn-primary btn-full"
+            style={{ fontSize: 13, letterSpacing: "0.1em", padding: "17px 24px" }}
+          >
             {loading
               ? <><span className="spinner" style={{ borderColor: "#000", borderTopColor: "transparent" }} />Analyzing your stack...</>
               : "Run My Audit →"}
@@ -158,7 +224,11 @@ export default function HomePage() {
         {/* Stats */}
         <section className="anim-fade-up-3" style={{ marginTop: 72, paddingTop: 48, borderTop: "1px solid var(--border)" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, textAlign: "center", maxWidth: 600, margin: "0 auto" }}>
-            {[{ stat: "$2,400", label: "Avg annual savings" },{ stat: "8 tools", label: "Audited per session" },{ stat: "60 sec", label: "To complete an audit" }].map(({ stat, label }) => (
+            {[
+              { stat: "$2,400", label: "Avg annual savings" },
+              { stat: "8 tools", label: "Audited per session" },
+              { stat: "60 sec",  label: "To complete an audit" },
+            ].map(({ stat, label }) => (
               <div key={stat}>
                 <div style={{ fontFamily: "var(--font-mono)", fontSize: 28, fontWeight: 700, color: "var(--green)", marginBottom: 6 }}>{stat}</div>
                 <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em" }}>{label}</div>
@@ -173,8 +243,8 @@ export default function HomePage() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 24 }}>
             {[
               { step: "01", title: "Enter your stack", desc: "Add each AI tool, plan, monthly spend, and seat count." },
-              { step: "02", title: "Get your audit", desc: "Our engine checks every tool against current pricing and alternatives for your use case." },
-              { step: "03", title: "Act on it", desc: "Per-tool recommendations with specific actions, savings figures, and defensible reasoning." },
+              { step: "02", title: "Get your audit",   desc: "Our engine checks every tool against current pricing and alternatives for your use case." },
+              { step: "03", title: "Act on it",        desc: "Per-tool recommendations with specific actions, savings figures, and defensible reasoning." },
             ].map(({ step, title, desc }) => (
               <div key={step} style={{ padding: 20, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 4 }}>
                 <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--green)", letterSpacing: "0.14em", marginBottom: 10 }}>{step}</div>
@@ -184,6 +254,7 @@ export default function HomePage() {
             ))}
           </div>
         </section>
+
       </main>
 
       <footer style={{ borderTop: "1px solid var(--border)", padding: "20px 0", marginTop: 64 }}>

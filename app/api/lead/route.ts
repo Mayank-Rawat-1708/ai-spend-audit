@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
       const isHighSavings = (data.monthlySavings ?? 0) > 500;
       const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "https://stackaudit.credex.rocks";
       await resend.emails.send({
-        from: "StackAudit <audit@credex.rocks>",
+        from: "StackAudit <onboarding@resend.dev>",
         to: data.email,
         subject: "Your AI Spend Audit Report",
         html: `

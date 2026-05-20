@@ -58,7 +58,7 @@ export async function sendReauditEmail({ email, staleAudits, baseUrl }: SendReau
   }).join("\n");
 
   await resend.emails.send({
-    from: "StackAudit <audit@credex.rocks>",
+    from: "StackAudit <onboarding@resend.dev>",
     to: email,
     subject: `Pricing changed — your audit may be stale`,
     html: `

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runAudit } from "@/lib/audit-engine";
 import { generateSummary } from "@/lib/ai-summary";
+import { PRICING_DATA } from "@/lib/pricing";
 import type { AuditInput } from "@/types";
 import { z } from "zod";
 
@@ -15,6 +16,7 @@ const AuditInputSchema = z.object({
   tools: z.array(ToolEntrySchema).min(1).max(20),
   teamSize: z.number().int().min(1).max(100000),
   useCase: z.enum(["coding", "writing", "data", "research", "mixed"]),
+  userEmail: z.string().email().optional(), // Round 2: capture at audit time if provided
 });
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -57,7 +59,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid input.", details: parsed.error.issues }, { status: 400 });
   }
 
-  const input = parsed.data as AuditInput;
+  const input = parsed.data as AuditInput & { userEmail?: string };
   const result = runAudit(input);
 
   try {
@@ -74,6 +76,10 @@ export async function POST(req: NextRequest) {
     try {
       const { createClient } = await import("@supabase/supabase-js");
       const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+
+      // Round 2: capture pricing snapshot at audit time
+      const pricingSnapshot = buildPricingSnapshot(input.tools.map(t => t.toolId));
+
       await supabase.from("audits").upsert({
         id: result.id,
         created_at: result.createdAt,
@@ -85,9 +91,30 @@ export async function POST(req: NextRequest) {
         total_annual_savings: result.totalAnnualSavings,
         ai_summary: result.aiSummary,
         is_optimal: result.isOptimal,
+        // Round 2 fields
+        user_email: input.userEmail ?? null,
+        pricing_snapshot: pricingSnapshot,
+        stale: false,
       });
     } catch (e) { console.error("[supabase] insert failed:", e); }
   }
 
   return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
+}
+
+/**
+ * Captures the current prices for only the tools in this audit.
+ * Stored as: { cursor: { Pro: 20, Business: 40 }, ... }
+ */
+function buildPricingSnapshot(toolIds: string[]): Record<string, Record<string, number>> {
+  const snapshot: Record<string, Record<string, number>> = {};
+  for (const toolId of toolIds) {
+    const plans = PRICING_DATA[toolId];
+    if (plans) {
+      snapshot[toolId] = Object.fromEntries(
+        plans.map(p => [p.plan, p.pricePerSeatPerMonth])
+      );
+    }
+  }
+  return snapshot;
 }

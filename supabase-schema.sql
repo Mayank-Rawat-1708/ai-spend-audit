@@ -1,6 +1,7 @@
--- StackAudit Supabase Schema
--- Run in Supabase SQL Editor: Dashboard → SQL Editor → New query → paste → Run
+-- StackAudit Supabase Schema (Round 2 — run full file in SQL Editor)
+-- Includes Round 1 tables + Round 2 additions
 
+-- ─── AUDITS (Round 1 + Round 2 columns) ────────────────────────────────────
 create table if not exists audits (
   id                    text primary key,
   created_at            timestamptz not null default now(),
@@ -11,17 +12,24 @@ create table if not exists audits (
   total_monthly_savings numeric not null default 0,
   total_annual_savings  numeric not null default 0,
   ai_summary            text,
-  is_optimal            boolean not null default false
+  is_optimal            boolean not null default false,
+  -- Round 2 additions
+  user_email            text,
+  pricing_snapshot      jsonb,
+  notified_at           timestamptz,
+  stale                 boolean not null default false,
+  unsubscribed          boolean not null default false
 );
 
-create index if not exists audits_created_at_idx on audits(created_at desc);
-create index if not exists audits_savings_idx    on audits(total_monthly_savings desc);
+create index if not exists audits_created_at_idx    on audits(created_at desc);
+create index if not exists audits_savings_idx        on audits(total_monthly_savings desc);
+create index if not exists audits_user_email_idx     on audits(user_email);
+create index if not exists audits_stale_idx          on audits(stale) where stale = true;
 
-alter table audits enable row level security;
-create policy "Audits publicly readable"   on audits for select using (true);
-create policy "Service role insert audits" on audits for insert with check (true);
-create policy "Service role update audits" on audits for update using (true);
+alter table audits disable row level security;
+grant all on audits to service_role, anon;
 
+-- ─── LEADS (Round 1 unchanged) ─────────────────────────────────────────────
 create table if not exists leads (
   id              bigserial primary key,
   created_at      timestamptz not null default now(),
@@ -40,23 +48,33 @@ create index if not exists leads_audit_id_idx     on leads(audit_id);
 create index if not exists leads_high_savings_idx on leads(high_savings) where high_savings = true;
 create index if not exists leads_created_at_idx   on leads(created_at desc);
 
-alter table leads enable row level security;
-create policy "Service role only on leads" on leads for all using (false);
+alter table leads disable row level security;
+grant all on leads to service_role, anon;
 
--- Dashboard views
-create or replace view high_value_leads as
-  select l.id, l.created_at, l.email, l.company_name, l.role, l.team_size,
-         l.monthly_savings, l.monthly_savings * 12 as annual_savings, l.contacted,
-         a.input->>'useCase' as use_case,
-         jsonb_array_length(a.recommendations) as tool_count
-  from leads l join audits a on a.id = l.audit_id
-  where l.high_savings = true and l.contacted = false
-  order by l.monthly_savings desc;
+-- ─── PRICING CHANGE LOG (Round 2) ──────────────────────────────────────────
+create table if not exists pricing_changes (
+  id          bigserial primary key,
+  detected_at timestamptz not null default now(),
+  tool_id     text not null,
+  plan        text not null,
+  old_price   numeric,
+  new_price   numeric,
+  change_type text not null -- 'price_changed' | 'plan_added' | 'plan_removed'
+);
 
-create or replace view daily_audit_stats as
-  select date_trunc('day', created_at) as day,
-         count(*) as total_audits,
-         count(*) filter (where is_optimal = false) as audits_with_savings,
-         avg(total_monthly_savings) as avg_monthly_savings,
-         sum(total_monthly_savings) as total_savings_identified
-  from audits group by 1 order by 1 desc;
+alter table pricing_changes disable row level security;
+grant all on pricing_changes to service_role, anon;
+
+-- ─── EMAIL LOG (Round 2 — dedup + click tracking) ──────────────────────────
+create table if not exists email_log (
+  id          bigserial primary key,
+  sent_at     timestamptz not null default now(),
+  email       text not null,
+  audit_ids   text[] not null,
+  clicked_at  timestamptz
+);
+
+create index if not exists email_log_email_idx on email_log(email);
+
+alter table email_log disable row level security;
+grant all on email_log to service_role, anon;

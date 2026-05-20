@@ -23,12 +23,10 @@ export async function POST(req: NextRequest) {
 
   const data = parsed.data;
 
-  // Honeypot check
   if (data.honeypot && data.honeypot.length > 0) {
-    return NextResponse.json({ success: true }); // silently accept
+    return NextResponse.json({ success: true });
   }
 
-  // Rate limit per email
   const emailKey = data.email.toLowerCase();
   const lastSubmit = emailRateMap.get(emailKey) ?? 0;
   if (Date.now() - lastSubmit < 1_200_000) {
@@ -40,6 +38,8 @@ export async function POST(req: NextRequest) {
     try {
       const { createClient } = await import("@supabase/supabase-js");
       const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+
+      // Insert lead
       await supabase.from("leads").insert({
         audit_id: data.auditId,
         email: data.email,
@@ -50,6 +50,12 @@ export async function POST(req: NextRequest) {
         high_savings: (data.monthlySavings ?? 0) > 500,
         created_at: new Date().toISOString(),
       });
+
+      // Round 2: backfill user_email on the audit row so detect-changes can reach them
+      await supabase.from("audits")
+        .update({ user_email: data.email })
+        .eq("id", data.auditId)
+        .is("user_email", null); // don't overwrite if already set
     } catch (e) { console.error("[supabase] lead insert failed:", e); }
   }
 

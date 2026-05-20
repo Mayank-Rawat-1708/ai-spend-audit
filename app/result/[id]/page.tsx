@@ -9,13 +9,14 @@ import LeadCaptureForm from "@/components/LeadCaptureForm";
 import CredexCTA from "@/components/CredexCTA";
 import ShareBar from "@/components/ShareBar";
 import BenchmarkBar from "@/components/BenchmarkBar";
+import DiffView from "@/components/DiffView";
 
-function LoadingScreen() {
+function LoadingScreen({ message = "Loading audit..." }: { message?: string }) {
   return (
     <div style={{ minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 20 }}>
       <div className="spinner" style={{ width: 32, height: 32, borderWidth: 3, borderColor: "var(--border)", borderTopColor: "var(--green)" }} />
       <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-muted)", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-        Loading audit...
+        {message}
       </div>
     </div>
   );
@@ -38,41 +39,74 @@ function NotFound() {
 export default function ResultPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [result, setResult] = useState<AuditResult | null>(null);
+  const [originalResult, setOriginalResult] = useState<AuditResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reauditLoading, setReauditLoading] = useState(false);
+  const [isReaudit, setIsReaudit] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    const urlParams = new URLSearchParams(window.location.search);
+    const reauditMode = urlParams.get("reaudit") === "true";
 
     const loadResult = async () => {
+      let original: AuditResult | null = null;
+
       // 1. Try localStorage
       try {
         const cached = localStorage.getItem(`audit_${id}`);
         if (cached) {
-          const parsed = JSON.parse(cached) as AuditResult;
-          if (!cancelled) { setResult(parsed); setLoading(false); }
-          return;
+          original = JSON.parse(cached) as AuditResult;
         }
       } catch { /* fall through */ }
 
       // 2. Try URL-encoded fallback
-      const urlParams = new URLSearchParams(window.location.search);
-      const encoded = urlParams.get("d");
-      if (encoded) {
-        try {
-          const decoded = JSON.parse(atob(encoded)) as AuditResult;
-          if (!cancelled) { setResult(decoded); setLoading(false); }
-          return;
-        } catch { /* fall through */ }
+      if (!original) {
+        const encoded = urlParams.get("d");
+        if (encoded) {
+          try { original = JSON.parse(atob(encoded)) as AuditResult; } catch { /* fall through */ }
+        }
       }
 
       // 3. Fetch from API
-      try {
-        const res = await fetch(`/api/result/${id}`);
-        if (!res.ok) throw new Error("not found");
-        const data = await res.json() as AuditResult;
-        if (!cancelled) { setResult(data); setLoading(false); }
-      } catch {
-        if (!cancelled) { setResult(null); setLoading(false); }
+      if (!original) {
+        try {
+          const res = await fetch(`/api/result/${id}`);
+          if (!res.ok) throw new Error("not found");
+          original = await res.json() as AuditResult;
+        } catch {
+          if (!cancelled) { setResult(null); setLoading(false); }
+          return;
+        }
+      }
+
+      if (cancelled) return;
+
+      if (reauditMode && original) {
+        // Show original first, then run fresh audit with same input
+        setOriginalResult(original);
+        setIsReaudit(true);
+        setLoading(false);
+        setReauditLoading(true);
+
+        try {
+          const res = await fetch("/api/audit", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(original.input),
+          });
+          if (!res.ok) throw new Error("reaudit failed");
+          const fresh = await res.json() as AuditResult;
+          if (!cancelled) setResult(fresh);
+        } catch (e) {
+          console.error("Re-audit failed:", e);
+          if (!cancelled) setResult(original); // fallback to original
+        } finally {
+          if (!cancelled) setReauditLoading(false);
+        }
+      } else {
+        setResult(original);
+        setLoading(false);
       }
     };
 
@@ -81,38 +115,75 @@ export default function ResultPage({ params }: { params: Promise<{ id: string }>
   }, [id]);
 
   if (loading) return <LoadingScreen />;
-  if (!result) return <NotFound />;
+  if (!result && !originalResult) return <NotFound />;
 
-  const isHighSavings = result.totalMonthlySavings > 500;
-  const highRecs = result.recommendations.filter(r => r.severity === "high");
-  const otherRecs = result.recommendations.filter(r => r.severity !== "high");
+  // ── Diff / Re-audit mode ──────────────────────────────────────────────────
+  if (isReaudit) {
+    return (
+      <div className="grid-bg" style={{ minHeight: "100dvh" }}>
+        <Header />
+        <main className="container" style={{ paddingBottom: 80 }}>
+          <div style={{ padding: "32px 0 20px" }}>
+            <div className="label" style={{ marginBottom: 8 }}>◈ Re-audit — Pricing Change Detected</div>
+            <h1 style={{ fontSize: 22, color: "var(--text)", margin: "0 0 8px", fontFamily: "var(--font-mono)", fontWeight: 700 }}>
+              What changed since your last audit
+            </h1>
+            <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, lineHeight: 1.6 }}>
+              Pricing in your stack has been updated. Below is a side-by-side comparison of your original recommendations vs. current pricing.
+            </p>
+          </div>
+
+          {reauditLoading ? (
+            <div style={{ padding: "40px 0", textAlign: "center" }}>
+              <div className="spinner" style={{ width: 24, height: 24, borderWidth: 2, borderColor: "var(--border)", borderTopColor: "var(--green)", margin: "0 auto 12px" }} />
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-muted)", letterSpacing: "0.1em" }}>
+                RUNNING FRESH AUDIT WITH CURRENT PRICING...
+              </div>
+            </div>
+          ) : (
+            <DiffView original={originalResult} fresh={result} />
+          )}
+
+          {!reauditLoading && result && (
+            <>
+              <hr className="divider" />
+              <LeadCaptureForm auditId={result.id} monthlySavings={result.totalMonthlySavings} isOptimal={result.isOptimal} />
+              <div style={{ height: 24 }} />
+              <ShareBar auditId={result.id} monthlySavings={result.totalMonthlySavings} />
+            </>
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  // ── Normal result view (unchanged from Round 1) ───────────────────────────
+  const current = result!;
+  const isHighSavings = current.totalMonthlySavings > 500;
+  const highRecs = current.recommendations.filter(r => r.severity === "high");
+  const otherRecs = current.recommendations.filter(r => r.severity !== "high");
 
   return (
     <div className="grid-bg" style={{ minHeight: "100dvh" }}>
       <Header />
-
       <main className="container" style={{ paddingBottom: 80 }}>
+        <SavingsHero result={current} />
 
-        <SavingsHero result={result} />
-
-        {/* AI Summary */}
-        {result.aiSummary && (
+        {current.aiSummary && (
           <section className="anim-fade-up-1" style={{ padding: "28px 0", borderBottom: "1px solid var(--border)" }}>
             <div className="label" style={{ marginBottom: 12 }}>◈ AI Analysis</div>
             <blockquote style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.75, maxWidth: 680, fontStyle: "italic", borderLeft: "2px solid var(--green-mid)", paddingLeft: 18, margin: 0 }}>
-              {result.aiSummary}
+              {current.aiSummary}
             </blockquote>
           </section>
         )}
 
-        {/* Credex CTA — high savings only */}
         {isHighSavings && (
           <div className="anim-fade-up-2" style={{ paddingTop: 24 }}>
-            <CredexCTA monthlySavings={result.totalMonthlySavings} />
+            <CredexCTA monthlySavings={current.totalMonthlySavings} />
           </div>
         )}
 
-        {/* Per-tool breakdown */}
         <section className="anim-fade-up-2" style={{ paddingTop: 32 }}>
           <div className="label" style={{ marginBottom: 16 }}>Per-Tool Breakdown</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -126,40 +197,34 @@ export default function ResultPage({ params }: { params: Promise<{ id: string }>
           </div>
         </section>
 
-        {/* Benchmark bar — shown for all team sizes */}
         <div className="anim-fade-up-3">
           <BenchmarkBar
-            totalCurrentSpend={result.totalCurrentSpend}
-            totalProjectedSpend={result.totalProjectedSpend}
-            teamSize={result.input.teamSize}
-            useCase={result.input.useCase}
-            hasSavings={!result.isOptimal}
+            totalCurrentSpend={current.totalCurrentSpend}
+            totalProjectedSpend={current.totalProjectedSpend}
+            teamSize={current.input.teamSize}
+            useCase={current.input.useCase}
+            hasSavings={!current.isOptimal}
           />
         </div>
 
         <hr className="divider" />
 
         <div className="anim-fade-up-3">
-          <LeadCaptureForm
-            auditId={result.id}
-            monthlySavings={result.totalMonthlySavings}
-            isOptimal={result.isOptimal}
-          />
+          <LeadCaptureForm auditId={current.id} monthlySavings={current.totalMonthlySavings} isOptimal={current.isOptimal} />
         </div>
 
         <div style={{ height: 24 }} />
 
         <div className="anim-fade-up-4">
-          <ShareBar auditId={result.id} monthlySavings={result.totalMonthlySavings} />
+          <ShareBar auditId={current.id} monthlySavings={current.totalMonthlySavings} />
         </div>
-
       </main>
 
       <footer style={{ borderTop: "1px solid var(--border)", padding: "20px 0", marginTop: 24 }}>
         <div className="container" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-dim)" }}>STACKAUDIT by Credex · credex.rocks</span>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-dim)" }}>
-            Pricing data verified {new Date(result.createdAt).toLocaleDateString()}
+            Pricing data verified {new Date(current.createdAt).toLocaleDateString()}
           </span>
         </div>
       </footer>
